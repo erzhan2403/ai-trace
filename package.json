@@ -1,6 +1,6 @@
 {
-  "name": "ai-trace",
-  "version": "0.1.0",
+  "name": "@yerzhan_ai/ai-trace",
+  "version": "0.1.1",
   "description": "Local, open-source, vendor-neutral tracing SDK and CLI for AI agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
