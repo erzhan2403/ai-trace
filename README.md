@@ -1,46 +1,61 @@
 # ai-trace
 
-**Local, open-source, vendor-neutral tracing SDK and CLI for AI agents.**
+**Local, open-source, vendor-neutral tracing for AI agents.**
 
-Record every tool call, LLM request, and agent step — locally, without sending data to any cloud.
+ai-trace records every tool call, LLM request, and agent step — stored locally as JSONL, viewable as a static HTML report. No cloud. No account. No data leaves your machine.
 
 ```
-Session: support-agent    Duration: 14.2s
-LLM calls:   2            Tokens: 323
-Tool calls:  6            Est. cost: $0.0005
-Errors:      1            Warnings: 2
+═══════════════════════════════════════
+  ai-trace summary
+═══════════════════════════════════════
+  Session:  support-agent
+  Duration: 4.6s
 
-⚠ Slow tool: search_database (3521ms)
-⚠ Loop detected: check_status called 3× in a row
-✗ Tool error: send_sms — SMS gateway timeout
+  LLM calls:   2            Tokens:      261
+  Tool calls:  6            Est. cost:   $0.0005
+  Errors:      1            Slowest tool: search_database (3506ms)
+
+  Warnings & Issues
+  ─────────────────
+  ⚠ Slow tool: search_database (3506ms > 3000ms)
+  ⚠ Loop detected: check_status called 3× in a row
+  ✗ Tool error: send_sms — SMS gateway timeout
+═══════════════════════════════════════
 ```
+
+---
+
+## Why ai-trace?
+
+When building AI agents, things go wrong in non-obvious ways:
+
+- A tool silently times out and the agent retries 5 times
+- An LLM call takes 8 seconds with no visibility into why
+- The agent loops on the same tool call indefinitely
+- Token costs are invisible until the invoice arrives
+
+Existing tools either require a cloud account, lock you into a specific framework, or only work with one LLM provider. ai-trace is a simple, local, framework-agnostic solution: instrument your agent with a few lines, get a full trace.
 
 ---
 
 ## Install
 
 ```bash
-npm install ai-trace
+npm install @yerzhan_ai/ai-trace
 ```
 
-Or clone and run locally:
-
-```bash
-git clone https://github.com/your-org/ai-trace
-cd ai-trace
-npm install
-```
+Requires Node.js 18+.
 
 ---
 
 ## Quick start
 
 ```typescript
-import { trace } from "ai-trace";
+import { trace } from "@yerzhan_ai/ai-trace";
 
-const session = trace.startSession({ name: "support-agent" });
+const session = await trace.startSession({ name: "support-agent" });
 
-await session.recordUserInput("Find invoice #123");
+await session.recordUserInput("Find invoice #123 and notify the client.");
 
 await session.recordStep({ description: "Searching invoice database" });
 
@@ -53,15 +68,15 @@ await session.recordToolCall({
 
 await session.recordLlmCall({
   model: "gpt-4.1-mini",
-  input: "Invoice found. Notify client?",
-  output: "Yes, send an email.",
+  input: "Invoice found. Should I notify the client?",
+  output: "Yes, send a notification email.",
   promptTokens: 120,
-  completionTokens: 12,
-  costUsd: 0.0002,
+  completionTokens: 18,
+  costUsd: 0.0003,
   durationMs: 980,
 });
 
-await session.recordFinalOutput("Invoice #123 found and client notified.");
+await session.recordFinalOutput("Invoice #123 found. Client notified.");
 await session.end();
 ```
 
@@ -69,47 +84,35 @@ Traces are saved to `./traces/session_YYYY-MM-DD_HHmmss_<name>.jsonl`.
 
 ---
 
-## Run the example
-
-```bash
-npm run example
-# or
-npx tsx examples/basic-agent.ts
-```
-
----
-
 ## CLI
 
 ### Summary
 
-Print a quick overview of a trace session:
-
 ```bash
-npx tsx src/cli/index.ts summary ./traces/session_xxx.jsonl
+npx ai-trace summary ./traces/session_xxx.jsonl
 ```
 
-After building:
-
-```bash
-npm run build
-./dist/cli/index.js summary ./traces/session_xxx.jsonl
-```
+Prints session stats, warnings, and errors to the terminal in seconds.
 
 ### HTML Report
 
-Generate a static HTML report:
-
 ```bash
-npx tsx src/cli/index.ts report ./traces/session_xxx.jsonl
-# Output: ./traces/session_xxx.jsonl.html
+npx ai-trace report ./traces/session_xxx.jsonl
 ```
 
-Open the `.html` file in any browser — no server needed, no external dependencies.
+Generates a self-contained HTML file next to the trace. Open it in any browser — no server needed, no external dependencies.
+
+The report includes:
+
+- Summary cards (duration, LLM calls, tool calls, errors, tokens, cost)
+- Full event timeline
+- Tool calls table with input/output previews and latency
+- LLM calls table with token usage and cost
+- Doctor warnings (slow tools, loops, errors)
 
 ---
 
-## SDK Reference
+## SDK reference
 
 ### `trace.configure(options)`
 
@@ -117,24 +120,26 @@ Open the `.html` file in any browser — no server needed, no external dependenc
 trace.configure({ outputDir: "./my-traces" });
 ```
 
+Call once before `startSession`. Default output dir is `./traces`.
+
 ### `trace.startSession(config) → Session`
 
 ```typescript
-const session = trace.startSession({ name: "my-agent" });
+const session = await trace.startSession({ name: "my-agent" });
 ```
 
 ### `session.recordUserInput(content)`
 
 ### `session.recordStep({ description })`
 
-### `session.recordToolCall({ name, input, output?, durationMs?, error? })`
+### `session.recordToolCall(options)`
 
 ```typescript
 // Success
 await session.recordToolCall({
   name: "search_docs",
   input: { query: "pricing" },
-  output: { results: [...] },
+  output: { results: ["doc1", "doc2"] },
   durationMs: 320,
 });
 
@@ -147,33 +152,61 @@ await session.recordToolCall({
 });
 ```
 
-### `session.recordLlmCall({ model, input, output, promptTokens, completionTokens, costUsd, durationMs })`
+### `session.recordLlmCall(options)`
+
+```typescript
+await session.recordLlmCall({
+  model: "gpt-4.1-mini",
+  input: "Summarize the results.",
+  output: "The invoice was found.",
+  promptTokens: 95,
+  completionTokens: 12,
+  costUsd: 0.0002,
+  durationMs: 750,
+});
+```
 
 ### `session.recordFinalOutput(content)`
 
 ### `session.end()`
 
-Always call `end()` at the end of a session. It writes `SESSION_END` and closes the file.
+Always call `end()` — it writes the final `SESSION_END` event and closes the file.
 
 ---
 
-## Analyzers
+## Doctor warnings
 
-The doctor warnings check for:
+The analyzer checks for:
 
 | Warning | Condition |
 |---|---|
-| Slow tool | Tool call > 3000ms |
-| Slow LLM | LLM call > 5000ms |
-| Loop | Same tool called ≥ 3× consecutively |
-| Tool error | Any `TOOL_CALL_ERROR` event |
+| Slow tool | Tool call duration > 3,000ms |
+| Slow LLM | LLM call duration > 5,000ms |
+| Loop | Same tool called 3+ times consecutively |
+| Tool error | Any failed tool call |
 
 ---
 
-## Tests
+## Run the example
 
 ```bash
-npm test
+git clone https://github.com/erzhan2403/ai-trace
+cd ai-trace
+npm install
+npm run example
+npx tsx src/cli/index.ts summary traces/*.jsonl
+npx tsx src/cli/index.ts report traces/*.jsonl
+```
+
+---
+
+## Development
+
+```bash
+npm install
+npm run build     # compile TypeScript
+npm test          # run tests (vitest)
+npm run example   # run the demo agent
 ```
 
 ---
@@ -182,12 +215,18 @@ npm test
 
 | Version | Focus |
 |---|---|
-| v0.1 | SDK + JSONL + CLI summary + HTML report |
+| **v0.1** | SDK + JSONL storage + CLI summary + HTML report ✅ |
 | v0.2 | `wrapTool()` helper, `doctor` command, improved timeline |
 | v0.3 | SQLite backend, `ai-trace list`, session diff |
-| v0.4 | OpenAI + Anthropic collectors |
+| v0.4 | OpenAI + Anthropic built-in collectors |
 | v0.5 | MCP stdio proxy, monorepo |
-| v1.0 | OpenTelemetry export, web UI, plugin API |
+| v1.0 | OpenTelemetry export, local web UI, plugin API |
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
